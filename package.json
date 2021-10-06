@@ -1,0 +1,16 @@
+{
+  "name": "node-import",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "analytics-node": "^3.3.0",
+    "csv-parse": "^4.3.4",
+    "prompt": "^1.2.0"
+  }
+}

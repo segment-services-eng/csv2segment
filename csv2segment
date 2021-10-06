@@ -1,0 +1,555 @@
+#!/usr/local/bin/node
+
+////////// WELCOME TO THE CSV-TO-SEGMENT SCRIPT! //////////
+
+// With this script you can transform CSV files into Segment API calls
+// And send those calls locally from your machine
+// To get started, follow the 4 steps below, noted //// LIKE THIS /////
+// Feel free to ignore everything else, which just sets up the script
+
+// IMPORTANT DISCLAIMER
+// IN PROVIDING THIS SCRIPT, SEGMENT MAKES NO REPRESENTATIONS
+// ABOUT WARRANTY FOR A PARTICULAR PURPOSE OR USE. SEGMENT
+// CUSTOMERS & EMPLOYEES USING THIS SCRIPT DO SO AT THIER OWN RISK.
+// Please consult Segment's documentation, support, and success before
+// sending large volumes of data into your workspace, and please test all
+// data in a separate dev source before sending into production sources.
+
+// USAGE: ./csv2segment <filename.csv>
+
+/////////////////////////////////////////////////////////////
+
+
+
+///////////// 1 - SET YOUR DELIMITER /////////////////////
+
+// This is the character which separates your CSV columns
+// Consider pipe-delimiting (|) if you have commas or JSON in your columns
+
+const fileDelimiter = ',';
+
+/////////////////////////////////////////////////////////
+
+///////////// 2 - SET YOUR WRITE KEY /////////////
+
+//Send calls to a Segment HTTP API Source (replace WRITE KEY with your own!)
+const segment = {
+  devKey : "DEVELOPMENT WRITE KEY", 
+  productionKey : "PRODUCTION WRITE KEY",  
+  flush_at : 20,  // default 20
+  // Flush the memory after every row (flushAt: 1)
+  // --> This might seem odd, but it helps avoid memory overflow for especially large CSVs
+  // --> Consider connecting to a hardline ethernet connection if running this scropt for more than 200K rows
+  flush_interval : 10000  // default 10000
+};
+
+///////////////////////////////////////////////////
+
+///////////// 3 - SELECT YOUR API METHODS /////////////
+
+// Select which Segment API method(s) you'll be using by setting the value to 'true'
+// Each of these methods will fire with EACH ROW of your CSV
+// --> You can select more than one!
+
+const fireIdentify = true;
+const fireGroup = false;
+const fireTrack = false;
+const firePage = false;
+const fireScreen = false;
+
+/////////////////////////////////////////////////////////
+
+///////////// 4 - PREPARE YOUR COLUMN VARIABLES /////////////
+  // Before we start writing calls to the Segment API, it's super helpful
+  // to define (and format) variables for each of your CSV columns.
+  // Here are vars for the MOCK_DATA:
+  
+  /** 
+  '<CSV COLUMN HEADER>' : { 
+    trait: "trait or property name",  // Optional - defaults to snake case of column header
+    datatype : "String",  // Optional - defaults to String  |  Options: String, Date, Boolean, Number, JSON
+    allowNull : false,   // Optional  - defaults to false, if true the column can be set to 'null'
+    // PER SEGMENT DOCUMENTATION userId OR anonymousId must be included
+    isUser : false,  // Sets column as the userId  
+    isAnonymous : false,  // Sets column as the annonymousId
+    isEvent : false,  // Sets column as the event name  REQUIRED for Track calls
+    isGroup : false,  // Sets column as the group name  REQUIRED for Group calls
+    isPage : false,   // Sets column as the page name  REQUIRED for Page calls
+    isScreen : false,   // Sets column as the screen name  REQUIRED for Screen calls
+    isTimestamp : false  // Sets column as the timestamp  REQUIRED for loading historical data
+    context : false  // Defines the value as a context variable
+  }
+  */
+  const forceColums = false;    // if true this will include all file columns (NOT RECOMMENDED)
+
+  const fileCols = {
+    'Display Name' : { trait : 'sku' , isUser: true},
+    'Description' : { trait : 'description' },
+    'Class' : { trait : 'class' },
+    'Vendor Name' : { trait : 'vendor_name' },
+    'Product Status' : { trait : 'product_status' },
+    'Launch Date' : { trait : 'launch_date', datatype: 'Date'},
+    'UPC Code' : { trait : 'upc_code' },
+    'Lens Type' : { trait : 'lens_type' },
+    'Lens Power' : { trait : 'lens_power', datatype: 'Number'},
+    'Marketing Color Description' : { trait : 'marketing_color_description' },
+    'Size' : { trait : 'size' },
+    'Shape' : { trait : 'shape' },
+    'Diopter' : { trait : 'diopter' },
+    'Gender' : { trait : 'gender' },
+    'Style Name' : { trait : 'style_name' },
+    'Style Number' : { trait : 'style_number', datatype: 'Number'},
+    'MSRP' : { trait : 'msrp', datatype: 'Number'},
+    'Color Number' : { trait : 'color_number', datatype: 'Number'},
+    'Color' : { trait : 'color' },
+    'Marketing Description' : { trait : 'marketing_description' },
+    'Lens Width' : { trait : 'lens_width' },
+    'Lens Type' : { trait : 'lens_type' },
+    'Lens Depth' : { trait : 'lens_depth' },
+    'Style Name' : { trait : 'style_name' },
+    'Frame Width' : { trait : 'frame_width' },
+    'Launch Date' : { trait : 'launch_date' },
+    'Frame Measurement' : { trait : 'frame_measurement' },
+    'Temple Length' : { trait : 'temple_length' },
+    'Finish - Temple' : { trait : 'finish_temple' },
+    'Material' : { trait : 'material' },
+    'Shopify Product Id' : { trait : 'shopify_product_id' },
+    'Purchase Price' : { trait : 'purchase_price', datatype: 'Number'},
+    'Internal ID' : { trait : 'internal_id' },
+  };
+
+/**
+ * Stripped down fileCols using the force all columns value
+ * this is not recommended but was used for testing
+ */
+
+/*
+const fileCols = {
+  'Display Name' : { trait : 'sku' , isUser: true},
+  'Launch Date' : { datatype: 'Date'},
+  'Lens Power' : {  datatype: 'Number'},
+  'Style Number' : {  datatype: 'Number'},
+  'MSRP' : {  datatype: 'Number'},
+  'Color Number' : {  datatype: 'Number'},
+  'Finish - Temple' : { trait : 'finish_temple' },
+  'Purchase Price' : {  datatype: 'Number'},
+};
+*/
+
+/////////////////////////////////////////////////////////////
+
+///////////// OPTIONAL STEP 5 - CUSTOMIZE YOUR API CALLS /////////////
+
+// Now all the basics are in place and the standard behavior will function without any
+// additional changes.  HOWERVER, you can customize any of the Segment calls
+// you selected in Step 3, and map those calls against the columns you defined in step 4.
+//
+// Remember the following when sending to the  Segment API:
+// -> You *MUST* specify an `anonymousId` OR a `userId` in each call
+// -> `Group` calls also require a `groupId`
+// -> `Track` calls require an `event` value
+// -> The `timestamp` object controls when the call occured (REQUIRED for HISTORICAL data)
+// -> The `integrations` object controls where your data goes downstream
+// -> The `context` object can set useful context on your event (e.g. ip address)
+
+
+  /////////////// IDENTIFY CALLS ///////////////
+  // Modify this script so each element
+  // aligns with the vars in step 4
+
+  function sendIdentifies(analytics, col){
+    let package = {};
+    package.userId = col.userId;
+    if ("anonymousId" in col) package.anonymousId = col.anonymousId;
+    package.traits = col.properties;
+    package.integrations = {};
+    if ("timestamp" in col) package.timestamp = col.timestamp;
+
+    // Send the package via identify call
+    analytics.identify(package);
+    // console.log("IDENTIFY => " + JSON.stringify(package,null,2));
+    console.log('// identify call ' + col.userId)
+  }
+  
+  
+  /////////////// GROUP CALLS /////////////// 
+  function sendGroups(analytics, col){
+    if ("groupId" in col) {
+      let package = {};
+      package.groupId = col.groupId;
+      package.userId = col.userId;
+      if ("anonymousId" in col) package.anonymousId = col.anonymousId;
+      package.traits = col.properties;
+      package.integrations = {};
+      if ("timestamp" in col) package.timestamp = col.timestamp;
+
+      analytics.group(package);
+      // console.log("GROUP => " + JSON.stringify(package,null,2));
+      console.log('// group call  ' + package.groupId + ' user ' + package.userId);
+    } else {
+      console.log('INVALID GROUP CALL - missing groupId');
+    }
+  }
+  
+  
+  /////////////// TRACK CALLS ///////////////
+  // Modify this script to meet project specifications  
+  function sendTracks(analytics, col){
+  
+    if ("event" in col) {
+      let package = {};
+      package.event = col.event;
+      package.userId = col.userId;
+      if ("anonymousId" in col) package.anonymousId = col.anonymousId;
+      package.properties = col.properties;
+      package.integrations = {};
+      if ("timestamp" in col) package.timestamp = col.timestamp;
+    
+      // Send the package via track call
+      analytics.track(package);
+      //console.log("TRACK => " + JSON.stringify(package,null,2));
+      console.log('// track call ' + package.userId);
+    } else {
+      console.log('INVALID EVENT CALL - missing Event Name');
+    }
+  }
+  
+  
+  /////////////// PAGE CALLS ///////////////
+  // Modify this script to meet project specifications  
+  function sendPages(analytics, col){
+  
+    if ("pageName" in col) {
+      let package = {};
+      package.name = col.pageName;
+      package.userId = col.userId;
+      if ("anonymousId" in col) package.anonymousId = col.anonymousId;
+      package.properties = col.properties;
+      package.integrations = {};
+      if ("timestamp" in col) package.timestamp = col.timestamp;
+      if ("context" in col) package.context =  col.context;
+
+      // Set the page context (optional)
+      // --> see https://segment.com/docs/spec/common/#context for examples
+      //  context: {
+      //    ip: col.ip
+      //  },
+
+      // Send the package via page call
+      analytics.page(package);
+      // console.log("PAGE => " + JSON.stringify(package,null,2));
+      console.log('// page call ' + package.name + ' by ' + package.userId);
+    } else {
+      console.log('INVALID PAGE CALL - missing Page Name');
+    }
+  }
+
+  /////////////// SCREEN CALLS ///////////////
+  // Modify this script to meet project specifications  
+  function sendScreen(analytics, col){
+  
+    if ("screenName" in col) {
+      let package = {};
+      package.name = col.screenName;
+      package.userId = col.userId;
+      if ("anonymousId" in col) package.anonymousId = col.anonymousId;
+      package.properties = col.properties;
+      package.integrations = {};
+      if ("timestamp" in col) package.timestamp = col.timestamp;
+      if ("context" in col) package.context =  col.context;
+
+      // Send the package via page call
+      analytics.screen(package);
+      // console.log("SCREEN => " + JSON.stringify(package,null,2));
+      console.log('// screen call ' + package.name + ' by ' + package.userId);
+    } else {
+      console.log('INVALID Screen CALL - missing Screen Name');
+    }
+  }
+  
+/////////////////////////////////////////////////////////////
+
+//
+// DO NOT EDIT BELOW THIS LINE
+//
+
+function mapColumns(colData, fileHeader, forceAllCols = false) {
+  let colMap = { };
+ 
+  let haveUser = false;
+  let haveAnonymous = false;
+  let haveGroup = false;
+  let haveTimestamp = false;
+  let haveEvent = false;
+  let havePage = false;
+  let haveScreen = false;
+
+  let key = "";
+
+  // console.log("ColData => " + JSON.stringify(colData,null,2));
+  // for (const key in fileHeader) {
+  for (let i = 0; i < fileHeader.length; i++ ) {
+    key = fileHeader[i];
+    // console.log(key + " = column " + i);
+    // console.log("Traits => " + JSON.stringify(colData[key],null,2));
+
+    if (colData[key]) {
+      colMap[i] = {};
+
+      colMap[i].trait = (colData[key].trait) ? colData[key].trait : key.trim().toLowerCase().replace(" ","_");
+      colMap[i].datatype = (colData[key].datatype) ? colData[key].datatype : 'String';
+      colMap[i].allownull = ("allowNull" in colData[key]) ? Boolean(colData[key].allowNull) : false;
+      colMap[i].context = ("context" in colData[key]) ? Boolean(colData[key]) : false;
+      
+      if (colData[key].isUser) {
+        if ( (haveUser == false) && (colData[key].isUser == true) ) {
+          colMap.userId = i;
+          haveUser = true;
+        }
+      }
+
+      if (colData[key].isAnonymous) {
+        if ( (haveAnonymous == false) && (colData[key].isAnonymous == true) ) {
+          colMap.anonymousId = i;
+          haveAnonymous = true;
+        }
+      }
+
+      if (colData[key].isGroup) {
+        if ( (haveGroup == false) && (colData[key].isGroup == true) ) {
+          colMap.groupId = i;
+          haveGroup = true;
+        }
+      }
+
+      if (colData[key].isTimestamp) {
+        if ( (haveTimestamp == false) && (colData[key].isTimestamp == true) ) {
+          colMap.timestamp = i;
+          haveTimestamp = true;
+        }
+      }
+
+      if (colData[key].isEvent) {
+        if ( (haveEvent == false) && (colData[key].isEvent == true) ) {
+          colMap.event = i;
+          haveEvent = true;
+        }
+      }
+
+      if (colData[key].isPage) {
+        if ( (havePage == false) && (colData[key].isPage == true) ) {
+          colMap.page = i;
+          havePage = true;
+        }
+      }
+
+      if (colData[key].isScreen) {
+        if ( (haveScreen == false) && (colData[key].isScreen == true) ) {
+          colMap.screen = i;
+          haveScreen = true;
+        }
+      }
+
+    } else if (forceAllCols) {
+      // Add trait even if not defined
+      // Not Recommened in most use cases
+      colMap[i] = {};
+
+      colMap[i].trait = key.trim().toLowerCase().replaceAll(" ","_");
+      colMap[i].datatype = 'String';
+      colMap[i].allownull = true;
+      colMap[i].context = false;
+    }
+  }
+
+  return colMap;
+}
+
+function setVars(theMap,data) {
+  let package = {};
+  package.properties = {};
+  package.context = {};
+  
+  package.userId = ("userId" in theMap) ? formatData(data[theMap.userId], theMap[theMap.userId].datatype) : null;
+  
+  if ("anonymousId" in theMap) {
+    package.anonymousId = formatData(data[theMap.anonymousId], theMap[theMap.anonymousId].datatype);
+  }
+
+  if ("groupId" in theMap) {
+    package.groupId = formatData(data[theMap.groupId], theMap[theMap.groupId].datatype);
+  }
+
+  if ("timestamp" in theMap) {
+    package.timestamp = formatData(data[theMap.groupId], "Date");
+  }
+
+  if ("event" in theMap) {
+    package.event = formatData(data[theMap.event], theMap[theMap.event].datatype);
+  }
+
+  if ("page" in theMap) {
+    package.pageName = formatData(data[theMap.page], "String");
+  }
+
+  if ("screen" in theMap) {
+    package.screenName = formatData(data[theMap.screen], "String");
+  }
+
+  let dataValue = "";
+  for (const key in theMap) {
+    if (!isNaN(Number([key]))) {
+      if (theMap[key].allowNull) {
+        dataValue =  (data[key] && (data[key] !== '')) ? data[key] : null;
+      } else {
+        dataValue = data[key];
+      }
+      
+      if (theMap[key].context) {
+        package.context[theMap[key].trait] = formatData(dataValue, theMap[key].datatype);
+      } else {
+        package.properties[theMap[key].trait] = formatData(dataValue, theMap[key].datatype);
+      }
+
+      // console.log("key: " + key + "  " + theMap[key].trait + " -> " + data[key] + " as " + theMap[key].datatype);
+    }
+  }
+
+  // console.log("The Package: " + JSON.stringify(package,null,2));
+  return ( (package.userId !== null) || ("anonymousId" in package)) ? package : false;
+}
+
+function formatData(theValue, theFormat) { 
+  /*
+  if (allowNull) {
+    theValue = (data[key] && (data[key] !== '') ) ? data[key] : null;
+  }
+  */
+
+  switch(theFormat.toLowerCase()) {
+    case 'boolean':
+      theValue = Boolean(theValue);
+      break;
+    case 'date':
+      theValue = new Date(theValue);
+      break;
+    case 'iso':
+      theValue = new Date(theValue).toISOString();
+      break;
+    case 'json':
+      theValue = JSON.parse(theValue);
+      break;
+    case 'number':
+      theValue = Number(theValue);
+      break;
+  }
+
+  return theValue;
+}
+
+
+function processCSV(writeKey, csvfile) {
+  const fs = require('fs');
+  const parse = require('csv-parse');
+  let columnMap = {};
+
+  const analytics = new Analytics(writeKey,{
+    flushAt: segment.flush_at, // Default 20 - The number of messages to enqueue before flushing.
+    flushInterval: segment.flush_interval // Default 10000 - The number of milliseconds to wait before flushing the queue automatically
+  });
+
+  let rowCount = 0;
+  let thisRow = {};
+
+  console.log("Process File: " + csvfile );
+  let reader = fs.createReadStream( csvfile );
+
+  reader.on('open', function () {
+    // This just pipes the read stream to the response object (which goes to the client)
+    console.log("File Open");
+  
+    reader.pipe(parse({ delimiter: fileDelimiter, relax: true }))
+    .on('data', function(csvrow) {
+      // Loop through all the rows
+      if (rowCount == 0) {
+        columnMap = mapColumns(fileCols, csvrow, forceColums);
+        // console.log("Column Map: " + JSON.stringify(columnMap,null,2));
+      } else {
+        // Set the column variables based on the columnMap
+        thisRow = setVars(columnMap, csvrow);
+
+        if (thisRow !== false) {
+          if (fireIdentify) sendIdentifies(analytics, thisRow);
+          if (fireGroup) sendGroups(analytics, thisRow);
+          if (fireTrack) sendTracks(analytics, thisRow);
+          if (firePage) sendPages(analytics, thisRow);
+          if (fireScreen) sendScreen(analytics, thisRow);
+
+        // console.log("Data Row: " + JSON.stringify(thisRow,null,2));
+        } else {
+          console.log ("ERROR: Invalid Data");
+          console.log ("Row must contain UserId or AnonymousId");
+        }
+        
+      }
+      rowCount++;
+    })
+    .on('end', function() {
+      // Say that the run is complete
+      console.log('Run Completed: ' + csvfile);
+
+      // Flush the memory one last time
+      analytics.flush(function(err, batch) {
+        // The last word
+        console.log('Analytics Cache Flushed, and now this program can exit!');
+      });
+    });
+  });
+};
+
+let filename = "";
+
+const args = process.argv;
+if (args.length < 3) {
+  console.log("Invalid Syntax: ./csv2segment <filename.csv>");
+  return process.exit(1);
+} else {
+  filename = args[2]; 
+}
+
+
+// Initialize Segment's Analytics-Node server-side library
+const Analytics = require('analytics-node');
+const prompt = require('prompt');
+prompt.message = "";
+prompt.delimiter = "";
+
+const schema = {
+  properties: {
+    prodRun: {
+      pattern: /^[y|Y|n|N]$/,
+      description: "Are you ready to run on PRODUCTION source [N/y]?",
+      default: 'N',
+      required: true
+    }
+  }
+};
+
+prompt.start();
+prompt.get(schema, function (err, result) {
+  let writeKey = segment.devKey;
+
+  if (result.prodRun.toLowerCase() == 'y') {
+    writeKey = segment.productionKey;
+    console.log('Running file on PRODUCTION SOURCE');
+  } else {
+    console.log('TEST Run!');
+  }
+
+  processCSV(writeKey, filename);
+});
+
+function onErr(err) {
+    console.log(err);
+    return 1;
+}
