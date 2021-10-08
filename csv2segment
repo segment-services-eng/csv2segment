@@ -163,7 +163,9 @@ const fileCols = {
     if ("anonymousId" in col) package.anonymousId = col.anonymousId;
     package.traits = col.properties;
     package.integrations = {};
-    if ("timestamp" in col) package.timestamp = col.timestamp;
+    // Timestamp is not applied to Identify calls
+    // Best practice is to sort in decending date order so the most recent data is sent last
+    // if ("timestamp" in col) package.timestamp = col.timestamp;  
 
     // Send the package via identify call
     analytics.identify(package);
