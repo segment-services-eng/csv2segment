@@ -103,7 +103,7 @@ Replace each of the column names above with the headers for your own CSV, and ke
     - The script treats all CSV values as strings by default--even `null` values!  This element will allow replace the String with **null**
 - `isUser : false`  Sets column as the userId  
 - `isAnonymous : false`  Sets column as the annonymousId
-- `isEvent : false`  Sets column as the event name  **REQUIRED** for Track calls
+- `isEvent : false`  Sets column as the event name  **REQUIRED** for Track calls, also `isUser` is **REQUIRED** for Track calls.
 - `isGroup : false`  Sets column as the group name  **REQUIRED** for Group calls
 - `isPage : false`   Sets column as the page name  **REQUIRED** for Page calls
 - `isScreen : false`  Sets column as the screen name  **REQUIRED** for Screen calls
