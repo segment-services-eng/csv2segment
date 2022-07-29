@@ -383,7 +383,7 @@ function setVars(theMap,data) {
   }
 
   if ("timestamp" in theMap) {
-    package.timestamp = formatData(data[theMap.groupId], "Date");
+    package.timestamp = formatData(data[theMap.timestamp], "Date");
   }
 
   if ("event" in theMap) {
